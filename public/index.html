@@ -331,7 +331,7 @@
               <th>Original URL</th>
               <th>Clicks</th>
               <th>Created</th>
-              <th></th>
+              <th aria-label="Actions"></th>
             </tr>
           </thead>
           <tbody id="linksBody">
@@ -442,7 +442,7 @@
         const links = await res.json();
 
         if (!links.length) {
-          tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No links yet — shorten one above.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No links yet — shorten one above.</td></tr>';
           return;
         }
 
@@ -460,7 +460,13 @@
       }
     }
 
+    let _statsAbort = null;
+
     async function openStats(code) {
+      if (_statsAbort) _statsAbort.abort();
+      _statsAbort = new AbortController();
+      const { signal } = _statsAbort;
+
       const dialog = document.getElementById('statsDialog');
       document.getElementById('statsTitle').textContent = `/${code}`;
       document.getElementById('statsSubtitle').textContent = 'Loading…';
@@ -470,7 +476,7 @@
       dialog.showModal();
 
       try {
-        const res = await fetch(`/api/links/${code}/stats`);
+        const res = await fetch(`/api/links/${code}/stats`, { signal });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
 
@@ -482,6 +488,7 @@
 
         renderBarChart(data.clicks_by_day);
       } catch (e) {
+        if (e.name === 'AbortError') return;
         document.getElementById('statsSubtitle').textContent = 'Failed to load stats.';
       }
     }

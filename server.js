@@ -11,6 +11,7 @@ const DB_PATH = process.env.DB_PATH || './urls.db';
 
 // --- Database setup ---
 const db = new Database(DB_PATH);
+db.pragma('foreign_keys = ON');
 db.exec(`
   CREATE TABLE IF NOT EXISTS urls (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,16 +93,23 @@ app.get('/api/links', (req, res) => {
 
 // GET /api/links/:code/stats — per-day click breakdown for a single link
 app.get('/api/links/:code/stats', (req, res) => {
-  const row = db.prepare('SELECT * FROM urls WHERE short_code = ?').get(req.params.code);
-  if (!row) return res.status(404).json({ error: 'Link not found' });
+  const fetchStats = db.transaction((code) => {
+    const urlRow = db.prepare('SELECT * FROM urls WHERE short_code = ?').get(code);
+    if (!urlRow) return null;
+    const days = db.prepare(`
+      SELECT date(clicked_at) AS day, COUNT(*) AS count
+      FROM clicks
+      WHERE url_id = ? AND clicked_at >= datetime('now', 'start of day', '-6 days')
+      GROUP BY date(clicked_at)
+      ORDER BY day ASC
+    `).all(urlRow.id);
+    return { urlRow, days };
+  });
 
-  const rawByDay = db.prepare(`
-    SELECT date(clicked_at) AS day, COUNT(*) AS count
-    FROM clicks
-    WHERE url_id = ? AND date(clicked_at) >= date('now', '-6 days')
-    GROUP BY date(clicked_at)
-    ORDER BY day ASC
-  `).all(row.id);
+  const result = fetchStats(req.params.code);
+  if (!result) return res.status(404).json({ error: 'Link not found' });
+
+  const { urlRow: row, days: rawByDay } = result;
 
   // Build a full 7-day array with zeros for days that had no clicks
   const byDay = [];
